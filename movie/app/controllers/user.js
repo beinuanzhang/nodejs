@@ -27,7 +27,7 @@ exports.signup = function(req, res) {
 			return res.redirect('/')
 		}
 		else {
-			var user = new User(_user)
+			user = new User(_user)
 
 			user.save(function(err, user) {
 				if(err) {

@@ -1,16 +1,22 @@
-var Movie = require('../models/movie')
+var mongoose = require('mongoose')
+var Movie = mongoose.model('Movie')
+var Category = mongoose.model('Category')
 var Comment = require('../models/comment')
+var multiparty = require('multiparty')
 var _ = require('underscore')
+var path = require('path')
+var http = require('http');
+var fs = require('fs')
 
 // detail page
 exports.detail = function(req, res) {
 	var id = req.params.id
 
-	// Movie.update({_id: id}, {$inc: {pv: 1}}, function(err) {
- //    if (err) {
- //      console.log(err)
- //    }
- //  })
+	Movie.update({_id: id}, {$inc: {pv: 1}}, function(err) {
+    if (err) {
+      console.log(err)
+    }
+  })
 
 	Movie.findById(id,function(err, movie) {
 		Comment
@@ -29,17 +35,12 @@ exports.detail = function(req, res) {
 
 // admin new page
 exports.new = function(req, res) {
-	res.render('admin',{
-		title: 'imooc 后台录入页',
-		movie: {
-			title: '',
-			doctor: '',
-			country: '',
-			year: '',
-			poster: '',
-			summary: '',
-			language: ''
-		}
+	Category.find({}, function(err, categories) {
+		res.render('admin',{
+			title: 'imooc 后台录入页',
+			categories: categories,
+			movie: {}
+		})
 	})
 }
 
@@ -49,21 +50,65 @@ exports.update = function(req, res) {
 
 	if (id) {
 		Movie.findById(id, function(err, movie) {
-			res.render('admin', {
-				title: 'imooc 后台更新页',
-				movie: movie
+			Category.find({}, function(err, categories) {
+				res.render('admin', {
+					title: 'imooc 后台更新页',
+					movie: movie,
+					categories: categories
+				})
 			})
 		})
 	}
 }
 
+// admin poster
+exports.savePoster = function(req, res, next) {
+
+  if (req.url === '/admin/movie' && req.method === 'POST') {
+    var form = new multiparty.Form();
+
+    form.parse(req, function(err, fields, files) {
+      var posterData = files.uploadPoster
+		  var filePath = files.uploadPoster[0].path
+		  var originalFilename = files.uploadPoster[0].originalFilename
+		  req.fields = fields
+
+		  if (originalFilename) {
+		    fs.readFile(filePath, function(err, data) {
+		      var timestamp = Date.now()
+		      // var type = posterData[0].headers.content-type.split('/')[1]
+		      var type = 'jpeg'
+		      var poster = timestamp + '.' + type
+		      var newPath = path.join(__dirname, '../../', '/public/upload/' + poster)
+
+		      fs.writeFile(newPath, data, function(err) {
+		        req.poster = poster
+		        next()
+		      })
+		    })
+		  }
+		  else {
+		    next()
+		  }
+    })
+  }
+}
+
 // admin post movie
 exports.save = function(req, res) {
-	var id = req.body.movie._id
-	var movieObj = req.body.movie
+	// console.log(req.fields)
+	var id = req.fields.movieId
+	var movieObj = req.fields
 	var _movie
 
-	if (id !=='undefined') {
+	console.log(id)
+	console.log(movieObj)
+
+	if(req.poster){
+		movieObj.poster = req.poster
+	}
+
+	if (id) {
 		Movie.findById(id, function(err,movie) {
 			if(err) {
 				console.log(err)
@@ -80,23 +125,39 @@ exports.save = function(req, res) {
 		})
 	}
 	else {
-		_movie = new Movie({
-			doctor: movieObj.doctor,
-			title: movieObj.title,
-			country: movieObj.country,
-			language: movieObj.language,
-			year: movieObj.year,
-			poster: movieObj.poster,
-			summary: movieObj.summary,
-			flash: movieObj.flash
-		})
+		_movie = new Movie(movieObj)
+
+		var categoryId = movieObj.category
+		var categoryName = movieObj.categoryName
+
 
 		_movie.save(function(err, movie) {
 			if(err) {
 				console.log(err)
 			}
 
-			res.redirect('/movie/' + movie._id)
+			if(categoryId) {
+				Category.findById(categoryId, function(err, category) {
+					category.movies.push(movie._id)
+
+					category.save(function(err, category) {
+						res.redirect('/movie/' + movie._id)
+					})
+				})
+			}
+			else if (categoryName) {
+				var category = new Category({
+          name: categoryName,
+          movies: [movie._id]
+        })
+
+        category.save(function(err, category) {
+          movie.category = category._id
+          movie.save(function(err, movie) {
+            res.redirect('/movie/' + movie._id)
+          })
+        })
+			}
 		})
 	}
 }
